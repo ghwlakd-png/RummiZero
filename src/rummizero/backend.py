@@ -4,15 +4,12 @@ from collections import Counter
 from itertools import chain
 from typing import Iterable
 
+from .arrangements import ArrangementEnumeration, ExactCoverArrangementEnumerator
 from .types import SolverMove
 
 
 class SolverBackend:
-    """Thin adapter around the public `rummikub-solver` API.
-
-    Tile IDs are stored as integers in RummiZero because upstream Tile objects
-    are int subclasses. This keeps checkpoints/data independent of object reprs.
-    """
+    """Thin adapter around the public rummikub-solver API."""
 
     def __init__(self) -> None:
         try:
@@ -26,6 +23,11 @@ class SolverBackend:
         self.ruleset = RuleSet()
         self.tiles = tuple(self.ruleset.tiles)
         self.joker_id = int(self.tiles[-1]) if self.ruleset.jokers else None
+        self.arrangement_enumerator = ExactCoverArrangementEnumerator(
+            tuple(tuple(int(t) for t in s) for s in self.ruleset.sets),
+            set_values=self.ruleset.set_values,
+            min_initial_value=self.ruleset.min_initial_value,
+        )
 
     def fresh_deck(self) -> list[int]:
         deck: list[int] = []
@@ -60,6 +62,38 @@ class SolverBackend:
             rack_tiles=tuple(int(t) for t in solution.tiles),
             table_sets=tuple(tuple(int(t) for t in s) for s in solution.sets),
             free_jokers=int(solution.free_jokers),
+        )
+
+    def enumerate_arrangements(
+        self,
+        rack: Iterable[int],
+        table_sets: Iterable[Iterable[int]],
+        opening_done: bool,
+        *,
+        limit: int = 8,
+        node_budget: int = 20_000,
+    ) -> ArrangementEnumeration:
+        rack_t = tuple(int(t) for t in rack)
+        table_t = tuple(tuple(int(t) for t in s) for s in table_sets)
+
+        if not opening_done:
+            # Opening melds may not rearrange or reuse existing table tiles.
+            result = self.arrangement_enumerator.enumerate_pool(
+                rack_t,
+                limit=limit,
+                node_budget=node_budget,
+                min_total_value=self.ruleset.min_initial_value,
+            )
+            if not table_t:
+                return result
+            combined = tuple(tuple(table_t) + tuple(arr) for arr in result.arrangements)
+            return ArrangementEnumeration(combined, result.nodes, result.truncated)
+
+        pool = tuple(chain.from_iterable(table_t)) + rack_t
+        return self.arrangement_enumerator.enumerate_pool(
+            pool,
+            limit=limit,
+            node_budget=node_budget,
         )
 
     def rack_penalty(self, rack: Iterable[int]) -> int:
