@@ -1,104 +1,69 @@
-# RummiZero v0.1
+# RummiZero v0.2-dev
 
-A **headless Rummikub self-play research scaffold**. The goal is to evolve the
-existing screen-recognition/recommendation project into a league-trained agent
-that can eventually use full-turn candidate actions, opponent belief, and
-information-set search.
+A **headless Rummikub self-play research project**.
 
-## What v0.1 already does
+The current development branch adds a first multi-action candidate generator so
+the agent is no longer limited to only "play the solver's single best move" vs
+"draw".
 
-- Runs complete 2–4 player games without a GUI.
-- Uses `rummikub-solver` as a strong exact/MILP baseline for legal best moves.
-- Keeps **private rack**, public table, stock size, opponent rack sizes, and each
-  player's opening-meld state separate in the observation.
-- Provides baseline agents (`SolverAgent`, `RandomDelayAgent`).
-- Provides a tiny trainable `LinearPolicyAgent` so the **self-play → update →
-  checkpoint → arena** pipeline is executable before a neural network is added.
-- Includes Elo arena and league snapshot infrastructure.
-- Uses deterministic seeds for reproducible experiments.
+## Stable v0.1
 
-## Deliberate v0.1 limitation
+- complete 2-4 player headless games
+- exact MILP solver baseline through rummikub-solver
+- separated private/public observation channels
+- baseline agents
+- bootstrap self-play learner
+- Elo arena
+- league snapshots
 
-The solver exposes the best move, not the full set of alternative legal final
-arrangements. Therefore the trainable action space in v0.1 is only:
+## v0.2a candidate generator
 
-1. `PLAY_BEST` — apply the solver's proposed legal move.
-2. `DRAW` — decline the move and draw (when stock remains).
+The development branch adds FullTurnCandidateGenerator.
 
-This is **not the final AlphaZero/DouZero action representation**. The next major
-engine milestone is a Full-Turn Candidate Generator that emits many legal final
-arrangements; the network will then score `(state, candidate_action)` pairs.
-The interfaces in this repo are arranged so that replacement does not require
-rewriting the simulator or league system.
+For a rack, it enumerates unique tile sub-multisets and asks the exact solver
+whether every tile in that subset can be legally played while preserving or
+rearranging the existing table. Every accepted result becomes a complete turn
+candidate.
 
-## Install (Windows / Python 3.11+)
+That changes the future learning problem from:
 
-```powershell
-py -m venv .venv
-.venv\Scripts\activate
-python -m pip install -U pip
-pip install -e .
-```
+1. play the one solver move
+2. draw
 
-`rummikub-solver` uses CVXPY and by default can use SciPy/HiGHS. For a newer
-HiGHS backend:
+to something closer to:
 
-```powershell
-pip install "rummikub-solver[highs]"
-```
+1. play 3 tiles with arrangement A
+2. play 4 tiles with arrangement B
+3. play 7 tiles with arrangement C
+4. draw
 
-## Smoke test
+The next v0.2b milestone will generate multiple distinct table arrangements even
+when they consume the same rack subset.
 
-```powershell
-rummizero arena --games 100 --seed 7
-```
+## Install
 
-## Self-play bootstrap
+On Windows, using Python 3.13 without PowerShell activation:
 
-```powershell
-rummizero train --games 5000 --players 2 --seed 7 --out models/linear_v1.json
-rummizero evaluate --model models/linear_v1.json --games 1000 --seed 99
-```
+    py -3.13 -m venv .venv
+    .\.venv\Scripts\python.exe -m pip install -U pip
+    .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-The v0.1 learner is intentionally tiny; its purpose is validating the data and
-league pipeline. It learns when to take the current exact solver move versus
-holding/drawing. A later DMC/PPO action-conditioned neural model will replace it.
+## Tests
 
-## Architecture
+    .\.venv\Scripts\python.exe -m pytest -q
 
-```text
-GameSimulator
-  ├─ public table / stock / turn history
-  ├─ private rack per player
-  ├─ SolverBackend (exact baseline)
-  └─ Agent interface
-       ├─ SolverAgent
-       ├─ RandomDelayAgent
-       └─ LinearPolicyAgent  <-- v0.1 self-play learner
+## Baseline arena
 
-Arena -> Elo
-League -> saved policy snapshots
+    .\.venv\Scripts\rummizero.exe arena --games 10 --seed 7
 
-NEXT:
-FullTurnCandidateGenerator
-   state + candidate action
-          ↓
-   action-conditioned neural net
-          ↓
-   DMC / PPO / NFSP league self-play
-          ↓
-   opponent belief + IS-MCTS
-```
+## Candidate demo
 
-## Why the observation is different from early Rummikub RL repos
+After checking out the v0.2 development branch:
 
-A tile in your rack is strategically different from the same tile on the table.
-The table's meld structure, opponent rack counts, stock count, opening status,
-and action history are also relevant. RummiZero keeps these channels separate
-instead of collapsing rack + table into one count vector.
+    .\.venv\Scripts\rummizero.exe candidates --rack 1,2,3,4 --opening-done
 
-## Project status
+For a standard ruleset, tile IDs 1,2,3,4 are the same-colour run values 1-4.
+The output should include several legal alternatives, such as playing all four
+or valid three-tile runs.
 
-`v0.1 = executable research scaffold`, not a finished superhuman agent.
-The important result is that we can now run headless games, collect trajectories,
-train a policy, retain generations, and evaluate generations reproducibly.
+See docs/V0_2_DESIGN.md for the design and limitations.
