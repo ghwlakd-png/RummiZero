@@ -6,6 +6,8 @@ from pathlib import Path
 
 from .agents import LinearPolicyAgent, RandomDelayAgent, SolverAgent
 from .arena import duel
+from .backend import SolverBackend
+from .candidates import FullTurnCandidateGenerator
 from .training import League, train_linear
 
 
@@ -29,6 +31,20 @@ def _parser() -> argparse.ArgumentParser:
     ev.add_argument("--model", type=Path, required=True)
     ev.add_argument("--games", type=int, default=1000)
     ev.add_argument("--seed", type=int, default=99)
+
+    cand = sub.add_parser(
+        "candidates",
+        help="Generate v0.2a complete-turn candidates for a rack (empty table demo)",
+    )
+    cand.add_argument(
+        "--rack",
+        type=str,
+        required=True,
+        help="Comma-separated standard tile IDs, e.g. 1,2,3,4",
+    )
+    cand.add_argument("--opening-done", action="store_true")
+    cand.add_argument("--max-candidates", type=int, default=32)
+    cand.add_argument("--max-solver-calls", type=int, default=256)
     return p
 
 
@@ -51,8 +67,12 @@ def main() -> None:
             league=league,
         )
         agent.save(args.out)
-        result = {"saved": str(args.out), "snapshots": len(league.snapshots), "weights": agent.weights}
-    else:
+        result = {
+            "saved": str(args.out),
+            "snapshots": len(league.snapshots),
+            "weights": agent.weights,
+        }
+    elif args.command == "evaluate":
         model_path = args.model
         result = duel(
             lambda: LinearPolicyAgent.load(model_path, training=False),
@@ -60,6 +80,28 @@ def main() -> None:
             games=args.games,
             seed=args.seed,
         )
+    else:
+        rack = tuple(int(x.strip()) for x in args.rack.split(",") if x.strip())
+        backend = SolverBackend()
+        generated = FullTurnCandidateGenerator(
+            backend,
+            max_candidates=args.max_candidates,
+            max_solver_calls=args.max_solver_calls,
+        ).generate(rack, (), opening_done=args.opening_done)
+        result = {
+            "rack": rack,
+            "candidate_count": len(generated.candidates),
+            "solver_calls": generated.solver_calls,
+            "truncated": generated.truncated,
+            "candidates": [
+                {
+                    "rack_tiles": c.rack_tiles,
+                    "table_sets": c.table_sets,
+                    "free_jokers": c.free_jokers,
+                }
+                for c in generated.candidates
+            ],
+        }
     print(json.dumps(result, indent=2))
 
 
