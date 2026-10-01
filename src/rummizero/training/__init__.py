@@ -1,11 +1,16 @@
+from .action_league import ActionLeague, evaluate_promotion, promotion_score
 from .elo import expected, update
 from .league import League
-from .selfplay import train_candidate_policy, train_linear
+from .selfplay import train_candidate_league, train_candidate_policy, train_linear
 
 __all__ = [
+    "ActionLeague",
     "League",
+    "evaluate_promotion",
     "expected",
-    "update",
-    "train_linear",
+    "promotion_score",
+    "train_candidate_league",
     "train_candidate_policy",
+    "train_linear",
+    "update",
 ]
