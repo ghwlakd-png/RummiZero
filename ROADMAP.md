@@ -22,23 +22,21 @@
 - candidate softmax selection including draw
 - terminal policy-gradient update
 - checkpoint save/load
-- train-action and evaluate-action CLI
 
-## v0.4 — League self-play — NEAR COMPLETE
+## v0.4 — League self-play — DONE (MVP)
 - frozen historical checkpoint pool
 - current policy vs historical snapshots / solver / current policy
 - periodic action-policy snapshots
-- head-to-head promotion gate
-- persistent champion checkpoint
-- automatic promotion after training
+- persistent champion
+- automatic promotion gate
 - deterministic evaluation seeds
-- next: larger benchmark suites and long-run training validation
 
-## v0.5 — imperfect-information strength
-- remaining-tile belief model
-- opponent rack-size/action-history features
-- recurrent or Transformer history encoder
-- NFSP/DeepCFR experiments
+## v0.5 — Imperfect-information strength — IN PROGRESS
+- uniform remaining-tile belief vector from private rack + public table
+- public opponent action-history features
+- version-isolated v0.5 league/checkpoints
+- next: action-conditioned belief updates and longer history encoder
+- later: NFSP/DeepCFR experiments
 
 ## v0.6 — search
 - determinization / information-set MCTS

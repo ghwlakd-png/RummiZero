@@ -60,6 +60,8 @@ class GameSimulator:
         opening_done = [False] * len(self.agents)
         trajectories: list[list[Transition]] = [[] for _ in self.agents]
         consecutive_no_play = 0
+        last_play_tiles = [0] * len(self.agents)
+        draw_streaks = [0] * len(self.agents)
 
         winner: int | None = None
         turn = 0
@@ -68,6 +70,12 @@ class GameSimulator:
             rack = racks[pid]
             move = self.backend.solve(rack, table_sets, opening_done[pid])
             opponents = tuple(len(racks[i]) for i in range(len(racks)) if i != pid)
+            opponent_last_play_tiles = tuple(
+                last_play_tiles[i] for i in range(len(racks)) if i != pid
+            )
+            opponent_draw_streaks = tuple(
+                draw_streaks[i] for i in range(len(racks)) if i != pid
+            )
             view = GameView(
                 player_id=pid,
                 rack=tuple(sorted(rack)),
@@ -79,11 +87,14 @@ class GameSimulator:
                 consecutive_passes=consecutive_no_play,
                 solver_move=move,
                 joker_tile_id=self.backend.joker_id,
+                opponent_last_play_tiles=opponent_last_play_tiles,
+                opponent_draw_streaks=opponent_draw_streaks,
             )
 
             agent = self.agents[pid]
             candidate_choose = getattr(agent, "choose_candidate", None)
             played = False
+            tiles_played = 0
 
             if callable(candidate_choose):
                 if move is None:
@@ -104,6 +115,7 @@ class GameSimulator:
                     table_sets = candidate.table_sets
                     opening_done[pid] = True
                     played = True
+                    tiles_played = len(candidate.rack_tiles)
                     if not racks[pid]:
                         winner = pid
                 elif deck:
@@ -118,10 +130,18 @@ class GameSimulator:
                     table_sets = move.table_sets
                     opening_done[pid] = True
                     played = True
+                    tiles_played = len(move.rack_tiles)
                     if not racks[pid]:
                         winner = pid
                 elif deck:
                     racks[pid].append(deck.pop())
+
+            if played:
+                last_play_tiles[pid] = tiles_played
+                draw_streaks[pid] = 0
+            else:
+                last_play_tiles[pid] = 0
+                draw_streaks[pid] += 1
 
             consecutive_no_play = 0 if played else consecutive_no_play + 1
             turn += 1

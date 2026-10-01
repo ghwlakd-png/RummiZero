@@ -32,6 +32,8 @@ class GameView:
     consecutive_passes: int
     solver_move: SolverMove | None
     joker_tile_id: int | None
+    opponent_last_play_tiles: tuple[int, ...] = ()
+    opponent_draw_streaks: tuple[int, ...] = ()
 
     @property
     def can_play(self) -> bool:
