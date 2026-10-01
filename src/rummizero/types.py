@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Sequence
 
 
 class ActionKind(str, Enum):
@@ -48,9 +47,17 @@ class Transition:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateTransition:
+    option_features: tuple[tuple[float, ...], ...]
+    chosen_index: int
+    probabilities: tuple[float, ...]
+    player_id: int
+
+
+@dataclass(frozen=True, slots=True)
 class GameResult:
     winner: int | None
     turns: int
     rack_sizes: tuple[int, ...]
     rack_penalties: tuple[int, ...]
-    trajectories: tuple[tuple[Transition, ...], ...]
+    trajectories: tuple[tuple[Transition | CandidateTransition, ...], ...]
