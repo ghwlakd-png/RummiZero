@@ -6,7 +6,6 @@ import random
 from typing import Any
 
 from rummizero.agents import CandidatePolicyAgent
-from rummizero.arena import duel
 
 
 @dataclass
@@ -65,11 +64,7 @@ class ActionLeague:
         candidate_max_candidates: int = 16,
         candidate_max_solver_calls: int = 64,
     ) -> dict[str, Any]:
-        """Promote challenger when it clears the head-to-head gate.
-
-        The first challenger bootstraps the league champion without a match.
-        Later challengers must meet the configured score threshold.
-        """
+        """Promote challenger when it clears the head-to-head gate."""
 
         challenger = Path(challenger)
         if not challenger.exists():
@@ -126,6 +121,10 @@ def evaluate_promotion(
     candidate_max_solver_calls: int = 64,
 ) -> dict[str, Any]:
     """Head-to-head gate used before replacing a league champion."""
+
+    # Import lazily to avoid the package cycle:
+    # arena -> training.elo -> training.__init__ -> action_league -> arena.
+    from rummizero.arena import duel
 
     result = duel(
         lambda: CandidatePolicyAgent.load(challenger, training=False),
