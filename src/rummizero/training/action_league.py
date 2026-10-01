@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import random
-from typing import Any
+from typing import Any, Callable
 
 from rummizero.agents import CandidatePolicyAgent
 
@@ -63,6 +63,9 @@ class ActionLeague:
         threshold: float = 0.55,
         candidate_max_candidates: int = 16,
         candidate_max_solver_calls: int = 64,
+        max_turns: int = 300,
+        progress_every: int = 0,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Promote challenger when it clears the head-to-head gate."""
 
@@ -91,6 +94,9 @@ class ActionLeague:
             threshold=threshold,
             candidate_max_candidates=candidate_max_candidates,
             candidate_max_solver_calls=candidate_max_solver_calls,
+            max_turns=max_turns,
+            progress_every=progress_every,
+            progress_callback=progress_callback,
         )
         if result["promoted"]:
             agent = CandidatePolicyAgent.load(challenger, training=False)
@@ -119,6 +125,9 @@ def evaluate_promotion(
     threshold: float = 0.55,
     candidate_max_candidates: int = 16,
     candidate_max_solver_calls: int = 64,
+    max_turns: int = 300,
+    progress_every: int = 0,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Head-to-head gate used before replacing a league champion."""
 
@@ -134,7 +143,10 @@ def evaluate_promotion(
         simulator_kwargs={
             "candidate_max_candidates": candidate_max_candidates,
             "candidate_max_solver_calls": candidate_max_solver_calls,
+            "max_turns": max_turns,
         },
+        progress_every=progress_every,
+        progress_callback=progress_callback,
     )
     score = promotion_score(result)
     return {

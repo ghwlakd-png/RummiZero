@@ -84,12 +84,15 @@ def train_candidate_policy(
     snapshot_dir: Path | None = None,
     candidate_max_candidates: int = 16,
     candidate_max_solver_calls: int = 64,
+    max_turns: int = 300,
+    training_temperature: float = 1.0,
 ) -> CandidatePolicyAgent:
     learner = CandidatePolicyAgent(
         hidden_size=hidden_size,
         learning_rate=learning_rate,
         training=True,
         seed=seed,
+        training_temperature=training_temperature,
     )
     root_rng = random.Random(seed)
 
@@ -108,6 +111,7 @@ def train_candidate_policy(
             seed=root_rng.randrange(2**31),
             candidate_max_candidates=candidate_max_candidates,
             candidate_max_solver_calls=candidate_max_solver_calls,
+            max_turns=max_turns,
         )
         result = sim.run()
         for seat in train_seats:
@@ -139,6 +143,8 @@ def train_candidate_league(
     solver_fraction: float = 0.20,
     candidate_max_candidates: int = 16,
     candidate_max_solver_calls: int = 64,
+    max_turns: int = 300,
+    training_temperature: float = 1.0,
     progress_every: int = 0,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     resume_from: Path | None = None,
@@ -160,17 +166,20 @@ def train_candidate_league(
     if resume_from is not None:
         learner = CandidatePolicyAgent.load(resume_from, training=True)
         learner.learning_rate = learning_rate
+        learner.training_temperature = training_temperature
     else:
         learner = CandidatePolicyAgent(
             hidden_size=hidden_size,
             learning_rate=learning_rate,
             training=True,
             seed=seed,
+            training_temperature=training_temperature,
         )
 
     root_rng = random.Random(seed)
     opponent_counts = {"historical": 0, "solver": 0, "current": 0}
     learner_wins = draws = 0
+    exploratory_decisions = games_with_exploration = 0
     started = time.perf_counter()
 
     if snapshot_every and not league.snapshots:
@@ -202,11 +211,20 @@ def train_candidate_league(
             seed=root_rng.randrange(2**31),
             candidate_max_candidates=candidate_max_candidates,
             candidate_max_solver_calls=candidate_max_solver_calls,
+            max_turns=max_turns,
         )
         result = sim.run()
+        trajectory = _candidate_trajectory(result, learner_seat)
+        deviations = sum(
+            len(tr.option_features) > 1 and tr.chosen_index != 0
+            for tr in trajectory
+        )
+        exploratory_decisions += deviations
+        games_with_exploration += int(deviations > 0)
         learner.update(
-            _candidate_trajectory(result, learner_seat),
+            trajectory,
             None if result.winner is None else result.winner == learner_seat,
+            teacher_index=0,
         )
         if result.winner is None:
             draws += 1
@@ -231,6 +249,7 @@ def train_candidate_league(
                     "seconds_per_game": elapsed / game_i,
                     "learner_wins": learner_wins,
                     "draws": draws,
+                    "exploratory_decisions": exploratory_decisions,
                     "snapshots": len(league.snapshots),
                 }
             )
@@ -242,6 +261,8 @@ def train_candidate_league(
         "resumed_from": str(resume_from) if resume_from is not None else None,
         "learner_wins": learner_wins,
         "draws": draws,
+        "exploratory_decisions": exploratory_decisions,
+        "games_with_exploration": games_with_exploration,
         "opponents": opponent_counts,
         "snapshots": len(league.snapshots),
         "latest_snapshot": str(league.latest) if league.latest else None,

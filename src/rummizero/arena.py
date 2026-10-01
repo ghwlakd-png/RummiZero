@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+import time
 from typing import Any, Callable
 
 from .agents.base import Agent
@@ -17,6 +18,8 @@ def duel(
     seed: int,
     simulator_kwargs: dict[str, Any] | None = None,
     paired_deals: bool = True,
+    progress_every: int = 0,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, float | int]:
     """Evaluate two agents, optionally reusing each deal with seats swapped."""
 
@@ -30,6 +33,7 @@ def duel(
     score_sq_sum = 0.0
     sim_kwargs = simulator_kwargs or {}
     pair_seed: int | None = None
+    started = time.perf_counter()
 
     for i in range(games):
         swapped = bool(i % 2)
@@ -62,6 +66,24 @@ def duel(
         score_sum += score_a
         score_sq_sum += score_a * score_a
         elo_a, elo_b = update(elo_a, elo_b, score_a)
+        completed = i + 1
+        if (
+            progress_callback is not None
+            and progress_every > 0
+            and (completed % progress_every == 0 or completed == games)
+        ):
+            elapsed = time.perf_counter() - started
+            progress_callback(
+                {
+                    "game": completed,
+                    "games": games,
+                    "elapsed_seconds": elapsed,
+                    "seconds_per_game": elapsed / completed,
+                    "a_wins": wins_a,
+                    "b_wins": wins_b,
+                    "draws": draws,
+                }
+            )
 
     mean_score = score_sum / games
     if games > 1:
