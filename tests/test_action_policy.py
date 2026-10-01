@@ -22,19 +22,24 @@ def _view():
     )
 
 
-def test_policy_scores_candidates_plus_draw_and_learns(tmp_path):
-    agent = CandidatePolicyAgent(hidden_size=8, seed=3, training=True)
+def _transition(agent):
     candidates = (
         CandidateAction((1, 2, 3), ((1, 2, 3),), 0),
         CandidateAction((1, 2, 3, 4), ((1, 2, 3, 4),), 0),
     )
+    _, transition = agent.choose_candidate(_view(), candidates, random.Random(7))
+    assert transition is not None
+    return candidates, transition
+
+
+def test_policy_scores_candidates_plus_draw_and_learns(tmp_path):
+    agent = CandidatePolicyAgent(hidden_size=8, seed=3, training=True)
+    candidates, transition = _transition(agent)
     options, _, probs = agent.option_probabilities(_view(), candidates)
     assert len(options) == 3
     assert np.isclose(float(probs.sum()), 1.0)
 
     before = agent.w1.copy()
-    _, transition = agent.choose_candidate(_view(), candidates, random.Random(7))
-    assert transition is not None
     agent.update((transition,), True)
     assert not np.array_equal(before, agent.w1)
 
@@ -44,6 +49,22 @@ def test_policy_scores_candidates_plus_draw_and_learns(tmp_path):
     _, _, loaded_probs = loaded.option_probabilities(_view(), candidates)
     _, _, new_probs = agent.option_probabilities(_view(), candidates)
     assert np.allclose(loaded_probs, new_probs)
+
+
+def test_game_update_is_normalized_by_trajectory_length():
+    one = CandidatePolicyAgent(hidden_size=8, seed=11, training=True)
+    many = CandidatePolicyAgent(hidden_size=8, seed=11, training=True)
+
+    _, tr_one = _transition(one)
+    _, tr_many = _transition(many)
+
+    one.update((tr_one,), True)
+    many.update((tr_many,) * 50, True)
+
+    assert np.allclose(one.w1, many.w1)
+    assert np.allclose(one.b1, many.b1)
+    assert np.allclose(one.w2, many.w2)
+    assert np.isclose(one.b2, many.b2)
 
 
 def test_policy_with_no_play_candidates_can_draw():

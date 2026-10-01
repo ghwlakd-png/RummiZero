@@ -22,12 +22,16 @@ class CandidatePolicyAgent(Agent):
         learning_rate: float = 0.01,
         training: bool = True,
         seed: int = 0,
+        max_grad_norm: float = 1.0,
     ) -> None:
         if hidden_size < 1:
             raise ValueError("hidden_size must be >= 1")
+        if max_grad_norm <= 0:
+            raise ValueError("max_grad_norm must be > 0")
         self.hidden_size = hidden_size
         self.learning_rate = learning_rate
         self.training = training
+        self.max_grad_norm = max_grad_norm
         rng = np.random.default_rng(seed)
         n_in = len(STATE_ACTION_FEATURE_NAMES)
         scale = 1.0 / max(1, n_in) ** 0.5
@@ -102,10 +106,25 @@ class CandidatePolicyAgent(Agent):
         trajectory: tuple[CandidateTransition, ...],
         won: bool | None,
     ) -> None:
+        """Apply one normalized REINFORCE update per completed game.
+
+        The previous implementation updated once per turn, so a 100-turn game
+        could move the policy roughly 100x more than a short game. It also
+        changed the weights between transitions from the same trajectory.
+        Accumulating gradients against one frozen set of weights, averaging by
+        trajectory length, and clipping the final gradient makes each game a
+        bounded learning step.
+        """
+
         if not self.training or won is None or not trajectory:
             return
 
         advantage = 1.0 if won else -1.0
+        grad_w1 = np.zeros_like(self.w1)
+        grad_b1 = np.zeros_like(self.b1)
+        grad_w2 = np.zeros_like(self.w2)
+        grad_b2 = 0.0
+
         for tr in trajectory:
             x = np.asarray(tr.option_features, dtype=float)
             hidden, scores = self._forward(x)
@@ -115,23 +134,44 @@ class CandidatePolicyAgent(Agent):
             grad_scores[tr.chosen_index] -= 1.0
             grad_scores *= advantage
 
-            grad_w2 = hidden.T @ grad_scores
-            grad_b2 = float(grad_scores.sum())
+            grad_w2 += hidden.T @ grad_scores
+            grad_b2 += float(grad_scores.sum())
             grad_hidden = np.outer(grad_scores, self.w2)
             grad_pre = grad_hidden * (1.0 - hidden * hidden)
-            grad_w1 = x.T @ grad_pre
-            grad_b1 = grad_pre.sum(axis=0)
+            grad_w1 += x.T @ grad_pre
+            grad_b1 += grad_pre.sum(axis=0)
 
-            lr = self.learning_rate
-            self.w2 -= lr * grad_w2
-            self.b2 -= lr * grad_b2
-            self.w1 -= lr * grad_w1
-            self.b1 -= lr * grad_b1
+        scale = 1.0 / len(trajectory)
+        grad_w1 *= scale
+        grad_b1 *= scale
+        grad_w2 *= scale
+        grad_b2 *= scale
 
-            np.clip(self.w1, -8.0, 8.0, out=self.w1)
-            np.clip(self.w2, -8.0, 8.0, out=self.w2)
-            np.clip(self.b1, -8.0, 8.0, out=self.b1)
-            self.b2 = float(max(-8.0, min(8.0, self.b2)))
+        grad_norm = float(
+            np.sqrt(
+                np.sum(grad_w1 * grad_w1)
+                + np.sum(grad_b1 * grad_b1)
+                + np.sum(grad_w2 * grad_w2)
+                + grad_b2 * grad_b2
+            )
+        )
+        if grad_norm > self.max_grad_norm:
+            clip = self.max_grad_norm / grad_norm
+            grad_w1 *= clip
+            grad_b1 *= clip
+            grad_w2 *= clip
+            grad_b2 *= clip
+
+        lr = self.learning_rate
+        self.w2 -= lr * grad_w2
+        self.b2 -= lr * grad_b2
+        self.w1 -= lr * grad_w1
+        self.b1 -= lr * grad_b1
+
+        np.clip(self.w1, -8.0, 8.0, out=self.w1)
+        np.clip(self.w2, -8.0, 8.0, out=self.w2)
+        np.clip(self.b1, -8.0, 8.0, out=self.b1)
+        self.b2 = float(max(-8.0, min(8.0, self.b2)))
 
     def save(self, path: str | Path) -> None:
         p = Path(path)
@@ -143,6 +183,7 @@ class CandidatePolicyAgent(Agent):
                     "feature_names": STATE_ACTION_FEATURE_NAMES,
                     "hidden_size": self.hidden_size,
                     "learning_rate": self.learning_rate,
+                    "max_grad_norm": self.max_grad_norm,
                     "w1": self.w1.tolist(),
                     "b1": self.b1.tolist(),
                     "w2": self.w2.tolist(),
@@ -168,6 +209,7 @@ class CandidatePolicyAgent(Agent):
             learning_rate=float(data.get("learning_rate", 0.01)),
             training=training,
             seed=0,
+            max_grad_norm=float(data.get("max_grad_norm", 1.0)),
         )
         agent.w1 = np.asarray(data["w1"], dtype=float)
         agent.b1 = np.asarray(data["b1"], dtype=float)
