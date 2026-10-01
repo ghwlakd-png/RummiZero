@@ -130,6 +130,7 @@ class GameSimulator:
                         rack,
                         table_sets,
                         opening_done=opening_done[pid],
+                        preferred_move=move,
                     )
                     candidates = _with_solver_candidate(
                         move,

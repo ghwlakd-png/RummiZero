@@ -147,7 +147,6 @@ def run_league_experiments(
             games=promotion_games,
             seed=round_seed + 500_009,
             threshold=promotion_threshold,
-            continuation_floor=continuation_floor,
             candidate_max_candidates=candidate_max_candidates,
             candidate_max_solver_calls=candidate_max_solver_calls,
             max_turns=max_turns,

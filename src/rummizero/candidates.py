@@ -73,7 +73,11 @@ class FullTurnCandidateGenerator:
         self.arrangement_node_budget = arrangement_node_budget
 
     @staticmethod
-    def _iter_unique_subsets(rack: Iterable[int]) -> Iterator[tuple[int, ...]]:
+    def _iter_unique_subsets(
+        rack: Iterable[int],
+        *,
+        max_size: int | None = None,
+    ) -> Iterator[tuple[int, ...]]:
         """Yield unique non-empty rack sub-multisets without materializing them.
 
         Ordering matches the useful property of the old implementation:
@@ -110,7 +114,8 @@ class FullTurnCandidateGenerator:
                 if n:
                     del current[-n:]
 
-        for target_size in range(remaining[0], 0, -1):
+        largest = remaining[0] if max_size is None else min(remaining[0], max_size)
+        for target_size in range(largest, 0, -1):
             yield from visit(0, target_size)
 
     @staticmethod
@@ -139,6 +144,7 @@ class FullTurnCandidateGenerator:
         table_sets: Iterable[Iterable[int]],
         *,
         opening_done: bool,
+        preferred_move: SolverMove | None = None,
     ) -> CandidateGenerationResult:
         rack_t = tuple(sorted(rack))
         table_t = tuple(tuple(s) for s in table_sets)
@@ -150,7 +156,14 @@ class FullTurnCandidateGenerator:
         table_is_empty = not any(table_t)
         enumerate_arrangements = getattr(self.backend, "enumerate_arrangements", None)
 
-        for subset in self._iter_unique_subsets(rack_t):
+        # The exact solver maximizes rack tiles played. Once its move is known,
+        # no larger rack subset can be a legal alternative. Starting at that
+        # size prevents a small solver-call budget from being exhausted on
+        # impossible 14-, 13-, ... tile subsets before reaching useful moves.
+        max_subset_size = (
+            len(preferred_move.rack_tiles) if preferred_move is not None else None
+        )
+        for subset in self._iter_unique_subsets(rack_t, max_size=max_subset_size):
             if len(candidates) >= self.max_candidates:
                 truncated = True
                 break
