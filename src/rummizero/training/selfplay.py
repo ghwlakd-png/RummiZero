@@ -116,7 +116,7 @@ def train_candidate_league(
     seed: int = 0,
     hidden_size: int = 32,
     learning_rate: float = 0.01,
-    league_dir: Path = Path("models/action_league"),
+    league_dir: Path = Path("models/action_league_v5"),
     snapshot_every: int = 100,
     historical_fraction: float = 0.55,
     solver_fraction: float = 0.20,
