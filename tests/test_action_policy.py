@@ -1,4 +1,5 @@
 import random
+from dataclasses import replace
 
 import numpy as np
 
@@ -72,3 +73,51 @@ def test_policy_with_no_play_candidates_can_draw():
     action, transition = agent.choose_candidate(_view(), (), random.Random(1))
     assert action is None
     assert transition is None
+
+
+def test_training_temperature_increases_exploration_and_round_trips(tmp_path):
+    cold = CandidatePolicyAgent(hidden_size=8, seed=3, training=True)
+    hot = CandidatePolicyAgent(
+        hidden_size=8,
+        seed=3,
+        training=True,
+        training_temperature=3.0,
+    )
+    candidates, _ = _transition(cold)
+    _, _, cold_probs = cold.option_probabilities(_view(), candidates)
+    _, _, hot_probs = hot.option_probabilities(
+        _view(), candidates, temperature=hot.training_temperature
+    )
+    assert hot_probs.max() < cold_probs.max()
+
+    path = tmp_path / "hot.json"
+    hot.save(path)
+    loaded = CandidatePolicyAgent.load(path, training=True)
+    assert loaded.training_temperature == 3.0
+
+
+def test_teacher_focused_update_ignores_teacher_actions():
+    focused = CandidatePolicyAgent(hidden_size=8, seed=13, training=True)
+    expected = CandidatePolicyAgent(hidden_size=8, seed=13, training=True)
+    _, transition = _transition(focused)
+    teacher = replace(transition, chosen_index=0)
+    deviation = replace(transition, chosen_index=1)
+
+    focused.update((teacher, deviation), True, teacher_index=0)
+    expected.update((deviation,), True)
+
+    assert np.allclose(focused.w1, expected.w1)
+    assert np.allclose(focused.w2, expected.w2)
+
+
+def test_logit_scaling_preserves_ranking_and_softens_confidence():
+    agent = CandidatePolicyAgent(hidden_size=8, seed=3, training=False)
+    candidates, _ = _transition(CandidatePolicyAgent(hidden_size=8, seed=3))
+    _, _, before = agent.option_probabilities(_view(), candidates)
+    before_choice = int(np.argmax(before))
+
+    agent.scale_logits(0.25)
+    _, _, after = agent.option_probabilities(_view(), candidates)
+
+    assert int(np.argmax(after)) == before_choice
+    assert after.max() < before.max()

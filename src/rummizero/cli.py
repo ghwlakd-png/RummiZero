@@ -14,6 +14,7 @@ from .training import (
     ActionLeague,
     League,
     evaluate_promotion,
+    run_league_experiments,
     train_candidate_league,
     train_candidate_policy,
     train_linear,
@@ -30,6 +31,7 @@ def _print_league_progress(info: dict) -> None:
             f"elapsed={info['elapsed_seconds']:.1f}s | "
             f"{info['seconds_per_game']:.2f}s/game | "
             f"wins={info['learner_wins']} | draws={info['draws']} | "
+            f"explore={info.get('exploratory_decisions', 0)} | "
             f"snapshots={info['snapshots']}"
         ),
         file=sys.stderr,
@@ -46,6 +48,18 @@ def _print_imitation_progress(info: dict) -> None:
             f"examples={info['examples']} | "
             f"accuracy={info['teacher_accuracy']:.3f} | "
             f"loss={info['mean_loss']:.4f}"
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _print_evaluation_progress(info: dict) -> None:
+    print(
+        (
+            f"[evaluate] {info['game']}/{info['games']} games | "
+            f"A {info['a_wins']} - B {info['b_wins']} - draws {info['draws']} | "
+            f"{info['seconds_per_game']:.2f}s/game"
         ),
         file=sys.stderr,
         flush=True,
@@ -93,6 +107,8 @@ def _parser() -> argparse.ArgumentParser:
     neural.add_argument("--snapshot-every", type=int, default=0)
     neural.add_argument("--max-candidates", type=int, default=16)
     neural.add_argument("--max-solver-calls", type=int, default=64)
+    neural.add_argument("--max-turns", type=int, default=300)
+    neural.add_argument("--training-temperature", type=float, default=1.0)
 
 
     imitate = sub.add_parser(
@@ -119,6 +135,8 @@ def _parser() -> argparse.ArgumentParser:
     neural_ev.add_argument("--seed", type=int, default=99)
     neural_ev.add_argument("--max-candidates", type=int, default=16)
     neural_ev.add_argument("--max-solver-calls", type=int, default=64)
+    neural_ev.add_argument("--max-turns", type=int, default=2000)
+    neural_ev.add_argument("--progress-every", type=int, default=10)
 
     league = sub.add_parser(
         "train-league",
@@ -137,8 +155,11 @@ def _parser() -> argparse.ArgumentParser:
     league.add_argument("--solver-fraction", type=float, default=0.20)
     league.add_argument("--max-candidates", type=int, default=16)
     league.add_argument("--max-solver-calls", type=int, default=64)
+    league.add_argument("--max-turns", type=int, default=300)
+    league.add_argument("--training-temperature", type=float, default=1.0)
     league.add_argument("--promotion-games", type=int, default=100)
     league.add_argument("--promotion-threshold", type=float, default=0.55)
+    league.add_argument("--promotion-max-turns", type=int, default=300)
     league.add_argument("--skip-promotion", action="store_true")
     league.add_argument(
         "--progress-every",
@@ -158,6 +179,34 @@ def _parser() -> argparse.ArgumentParser:
     promote.add_argument("--threshold", type=float, default=0.55)
     promote.add_argument("--max-candidates", type=int, default=16)
     promote.add_argument("--max-solver-calls", type=int, default=64)
+    promote.add_argument("--max-turns", type=int, default=300)
+    promote.add_argument("--progress-every", type=int, default=10)
+
+    auto = sub.add_parser(
+        "auto-experiment",
+        help="Run resumable train/evaluate/promote rounds without user input",
+    )
+    auto.add_argument("--baseline", type=Path, required=True)
+    auto.add_argument("--work-dir", type=Path, required=True)
+    auto.add_argument("--rounds", type=int, default=3)
+    auto.add_argument("--games-per-round", type=int, default=20)
+    auto.add_argument("--promotion-games", type=int, default=40)
+    auto.add_argument("--seed", type=int, default=7)
+    auto.add_argument("--learning-rate", type=float, default=0.003)
+    auto.add_argument("--min-learning-rate", type=float, default=0.0001)
+    auto.add_argument("--max-learning-rate", type=float, default=0.02)
+    auto.add_argument("--promotion-threshold", type=float, default=0.55)
+    auto.add_argument("--continuation-floor", type=float, default=0.45)
+    auto.add_argument("--players", type=int, default=2, choices=(2, 3, 4))
+    auto.add_argument("--snapshot-every", type=int, default=10)
+    auto.add_argument("--historical-fraction", type=float, default=0.4)
+    auto.add_argument("--solver-fraction", type=float, default=0.4)
+    auto.add_argument("--max-candidates", type=int, default=4)
+    auto.add_argument("--max-solver-calls", type=int, default=8)
+    auto.add_argument("--max-turns", type=int, default=300)
+    auto.add_argument("--training-temperature", type=float, default=1.0)
+    auto.add_argument("--initial-logit-scale", type=float, default=1.0)
+    auto.add_argument("--progress-every", type=int, default=10)
 
     bench = sub.add_parser(
         "benchmark",
@@ -236,6 +285,8 @@ def main() -> None:
             snapshot_dir=args.snapshot_dir,
             candidate_max_candidates=args.max_candidates,
             candidate_max_solver_calls=args.max_solver_calls,
+            max_turns=args.max_turns,
+            training_temperature=args.training_temperature,
         )
         agent.save(args.out)
         result = {
@@ -267,7 +318,10 @@ def main() -> None:
             simulator_kwargs={
                 "candidate_max_candidates": args.max_candidates,
                 "candidate_max_solver_calls": args.max_solver_calls,
+                "max_turns": args.max_turns,
             },
+            progress_every=args.progress_every,
+            progress_callback=_print_evaluation_progress,
         )
     elif args.command == "train-league":
         agent, stats = train_candidate_league(
@@ -282,6 +336,8 @@ def main() -> None:
             solver_fraction=args.solver_fraction,
             candidate_max_candidates=args.max_candidates,
             candidate_max_solver_calls=args.max_solver_calls,
+            max_turns=args.max_turns,
+            training_temperature=args.training_temperature,
             progress_every=args.progress_every,
             progress_callback=_print_league_progress,
             resume_from=args.resume,
@@ -296,8 +352,37 @@ def main() -> None:
                 threshold=args.promotion_threshold,
                 candidate_max_candidates=args.max_candidates,
                 candidate_max_solver_calls=args.max_solver_calls,
+                max_turns=args.promotion_max_turns,
+                progress_every=args.progress_every,
+                progress_callback=_print_evaluation_progress,
             )
         result = {"saved": str(args.out), **stats, "promotion": promotion}
+    elif args.command == "auto-experiment":
+        result = run_league_experiments(
+            baseline=args.baseline,
+            work_dir=args.work_dir,
+            rounds=args.rounds,
+            games_per_round=args.games_per_round,
+            promotion_games=args.promotion_games,
+            seed=args.seed,
+            learning_rate=args.learning_rate,
+            minimum_learning_rate=args.min_learning_rate,
+            maximum_learning_rate=args.max_learning_rate,
+            promotion_threshold=args.promotion_threshold,
+            continuation_floor=args.continuation_floor,
+            players=args.players,
+            snapshot_every=args.snapshot_every,
+            historical_fraction=args.historical_fraction,
+            solver_fraction=args.solver_fraction,
+            candidate_max_candidates=args.max_candidates,
+            candidate_max_solver_calls=args.max_solver_calls,
+            max_turns=args.max_turns,
+            training_temperature=args.training_temperature,
+            initial_logit_scale=args.initial_logit_scale,
+            progress_every=args.progress_every,
+            training_progress_callback=_print_league_progress,
+            evaluation_progress_callback=_print_evaluation_progress,
+        )
     elif args.command == "benchmark":
         result = benchmark_selfplay(
             args.games,
@@ -316,6 +401,9 @@ def main() -> None:
             threshold=args.threshold,
             candidate_max_candidates=args.max_candidates,
             candidate_max_solver_calls=args.max_solver_calls,
+            max_turns=args.max_turns,
+            progress_every=args.progress_every,
+            progress_callback=_print_evaluation_progress,
         )
     print(json.dumps(result, indent=2))
 

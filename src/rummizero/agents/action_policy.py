@@ -23,15 +23,19 @@ class CandidatePolicyAgent(Agent):
         training: bool = True,
         seed: int = 0,
         max_grad_norm: float = 1.0,
+        training_temperature: float = 1.0,
     ) -> None:
         if hidden_size < 1:
             raise ValueError("hidden_size must be >= 1")
         if max_grad_norm <= 0:
             raise ValueError("max_grad_norm must be > 0")
+        if training_temperature <= 0:
+            raise ValueError("training_temperature must be > 0")
         self.hidden_size = hidden_size
         self.learning_rate = learning_rate
         self.training = training
         self.max_grad_norm = max_grad_norm
+        self.training_temperature = training_temperature
         rng = np.random.default_rng(seed)
         n_in = len(STATE_ACTION_FEATURE_NAMES)
         scale = 1.0 / max(1, n_in) ** 0.5
@@ -48,8 +52,9 @@ class CandidatePolicyAgent(Agent):
         return (ActionKind.PLAY_BEST if view.can_play else ActionKind.DRAW), None
 
     @staticmethod
-    def _softmax(scores: np.ndarray) -> np.ndarray:
-        shifted = scores - np.max(scores)
+    def _softmax(scores: np.ndarray, temperature: float = 1.0) -> np.ndarray:
+        shifted = scores / temperature
+        shifted -= np.max(shifted)
         exp = np.exp(np.clip(shifted, -60.0, 60.0))
         return exp / exp.sum()
 
@@ -58,10 +63,20 @@ class CandidatePolicyAgent(Agent):
         scores = hidden @ self.w2 + self.b2
         return hidden, scores
 
+    def scale_logits(self, factor: float) -> None:
+        """Soften or sharpen confidence without changing action ranking."""
+
+        if factor <= 0:
+            raise ValueError("logit scale factor must be > 0")
+        self.w2 *= factor
+        self.b2 *= factor
+
     def option_probabilities(
         self,
         view: GameView,
         candidates: tuple[CandidateAction, ...],
+        *,
+        temperature: float = 1.0,
     ) -> tuple[tuple[CandidateAction | None, ...], np.ndarray, np.ndarray]:
         options: tuple[CandidateAction | None, ...] = tuple(candidates) + (None,)
         x = np.asarray(
@@ -69,7 +84,7 @@ class CandidatePolicyAgent(Agent):
             dtype=float,
         )
         _, scores = self._forward(x)
-        probabilities = self._softmax(scores)
+        probabilities = self._softmax(scores, temperature)
         return options, x, probabilities
 
     def choose_candidate(
@@ -78,7 +93,12 @@ class CandidatePolicyAgent(Agent):
         candidates: tuple[CandidateAction, ...],
         rng: random.Random,
     ) -> tuple[CandidateAction | None, CandidateTransition | None]:
-        options, x, probabilities = self.option_probabilities(view, candidates)
+        temperature = self.training_temperature if self.training else 1.0
+        options, x, probabilities = self.option_probabilities(
+            view,
+            candidates,
+            temperature=temperature,
+        )
         if self.training:
             draw = rng.random()
             cumulative = 0.0
@@ -164,6 +184,8 @@ class CandidatePolicyAgent(Agent):
         self,
         trajectory: tuple[CandidateTransition, ...],
         won: bool | None,
+        *,
+        teacher_index: int | None = None,
     ) -> None:
         """Apply one normalized REINFORCE update per completed game.
 
@@ -174,6 +196,13 @@ class CandidatePolicyAgent(Agent):
         trajectory length, and clipping the final gradient makes each game a
         bounded learning step.
         """
+
+        if teacher_index is not None:
+            trajectory = tuple(
+                tr
+                for tr in trajectory
+                if len(tr.option_features) > 1 and tr.chosen_index != teacher_index
+            )
 
         if not self.training or won is None or not trajectory:
             return
@@ -187,11 +216,11 @@ class CandidatePolicyAgent(Agent):
         for tr in trajectory:
             x = np.asarray(tr.option_features, dtype=float)
             hidden, scores = self._forward(x)
-            probabilities = self._softmax(scores)
+            probabilities = self._softmax(scores, self.training_temperature)
 
             grad_scores = probabilities.copy()
             grad_scores[tr.chosen_index] -= 1.0
-            grad_scores *= advantage
+            grad_scores *= advantage / self.training_temperature
 
             grad_w2 += hidden.T @ grad_scores
             grad_b2 += float(grad_scores.sum())
@@ -243,6 +272,7 @@ class CandidatePolicyAgent(Agent):
                     "hidden_size": self.hidden_size,
                     "learning_rate": self.learning_rate,
                     "max_grad_norm": self.max_grad_norm,
+                    "training_temperature": self.training_temperature,
                     "w1": self.w1.tolist(),
                     "b1": self.b1.tolist(),
                     "w2": self.w2.tolist(),
@@ -269,6 +299,7 @@ class CandidatePolicyAgent(Agent):
             training=training,
             seed=0,
             max_grad_norm=float(data.get("max_grad_norm", 1.0)),
+            training_temperature=float(data.get("training_temperature", 1.0)),
         )
         agent.w1 = np.asarray(data["w1"], dtype=float)
         agent.b1 = np.asarray(data["b1"], dtype=float)

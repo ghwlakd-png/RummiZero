@@ -67,3 +67,20 @@ The output should include several legal alternatives, such as playing all four
 or valid three-tile runs.
 
 See docs/V0_2_DESIGN.md for the design and limitations.
+
+## Resumable automatic experiments
+
+`auto-experiment` runs bounded train, paired evaluation, and promotion rounds
+without waiting for user input between stages. It writes
+`experiment_state.json` after every completed gate, resumes unfinished round
+sequences, protects the accepted champion, and can continue a non-catastrophic
+challenger as a research lineage without promoting it.
+
+    .\.venv\Scripts\rummizero.exe auto-experiment `
+      --baseline models\action_imitation100.json `
+      --work-dir models\auto_imitation100 `
+      --rounds 3 --games-per-round 20 --promotion-games 40 `
+      --max-candidates 4 --max-solver-calls 8 --max-turns 300
+
+Evaluation and promotion commands also accept `--progress-every` and
+`--max-turns`, so a slow or looping deal remains observable and bounded.
