@@ -101,6 +101,65 @@ class CandidatePolicyAgent(Agent):
             )
         return options[chosen_index], transition
 
+
+    def supervised_update(
+        self,
+        view: GameView,
+        candidates: tuple[CandidateAction, ...],
+        target: CandidateAction,
+    ) -> tuple[float, bool]:
+        """One cross-entropy step toward an exact-solver teacher action."""
+
+        options, x, probabilities = self.option_probabilities(view, candidates)
+        target_index = None
+        for i, option in enumerate(options):
+            if option is not None and option.canonical_key == target.canonical_key:
+                target_index = i
+                break
+        if target_index is None:
+            raise ValueError("teacher action is missing from candidate options")
+
+        predicted = int(np.argmax(probabilities))
+        loss = -float(np.log(max(float(probabilities[target_index]), 1e-12)))
+
+        hidden, _ = self._forward(x)
+        grad_scores = probabilities.copy()
+        grad_scores[target_index] -= 1.0
+
+        grad_w2 = hidden.T @ grad_scores
+        grad_b2 = float(grad_scores.sum())
+        grad_hidden = np.outer(grad_scores, self.w2)
+        grad_pre = grad_hidden * (1.0 - hidden * hidden)
+        grad_w1 = x.T @ grad_pre
+        grad_b1 = grad_pre.sum(axis=0)
+
+        grad_norm = float(
+            np.sqrt(
+                np.sum(grad_w1 * grad_w1)
+                + np.sum(grad_b1 * grad_b1)
+                + np.sum(grad_w2 * grad_w2)
+                + grad_b2 * grad_b2
+            )
+        )
+        if grad_norm > self.max_grad_norm:
+            clip = self.max_grad_norm / grad_norm
+            grad_w1 *= clip
+            grad_b1 *= clip
+            grad_w2 *= clip
+            grad_b2 *= clip
+
+        lr = self.learning_rate
+        self.w2 -= lr * grad_w2
+        self.b2 -= lr * grad_b2
+        self.w1 -= lr * grad_w1
+        self.b1 -= lr * grad_b1
+
+        np.clip(self.w1, -8.0, 8.0, out=self.w1)
+        np.clip(self.w2, -8.0, 8.0, out=self.w2)
+        np.clip(self.b1, -8.0, 8.0, out=self.b1)
+        self.b2 = float(max(-8.0, min(8.0, self.b2)))
+        return loss, predicted == target_index
+
     def update(
         self,
         trajectory: tuple[CandidateTransition, ...],

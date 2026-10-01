@@ -6,8 +6,34 @@ from typing import Sequence
 
 from .agents.base import Agent
 from .backend import SolverBackend
-from .candidates import FullTurnCandidateGenerator
+from .candidates import CandidateAction, FullTurnCandidateGenerator
 from .types import ActionKind, GameResult, GameView, Transition
+
+
+def _solver_candidate(move) -> CandidateAction:
+    return CandidateAction(
+        rack_tiles=tuple(sorted(move.rack_tiles)),
+        table_sets=tuple(tuple(s) for s in move.table_sets),
+        free_jokers=move.free_jokers,
+    )
+
+
+def _with_solver_candidate(
+    move,
+    candidates: tuple[CandidateAction, ...],
+    limit: int,
+) -> tuple[CandidateAction, ...]:
+    """Guarantee the exact solver move is available to candidate policies."""
+
+    target = _solver_candidate(move)
+    merged = [target]
+    for candidate in candidates:
+        if candidate.canonical_key == target.canonical_key:
+            continue
+        merged.append(candidate)
+        if len(merged) >= limit:
+            break
+    return tuple(merged)
 
 
 class GameSimulator:
@@ -105,7 +131,11 @@ class GameSimulator:
                         table_sets,
                         opening_done=opening_done[pid],
                     )
-                    candidates = generated.candidates
+                    candidates = _with_solver_candidate(
+                        move,
+                        generated.candidates,
+                        self.candidate_generator.max_candidates,
+                    )
                 candidate, transition = candidate_choose(view, candidates, self.rng)
                 if transition is not None:
                     trajectories[pid].append(transition)

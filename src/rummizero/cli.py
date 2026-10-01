@@ -17,6 +17,7 @@ from .training import (
     train_candidate_league,
     train_candidate_policy,
     train_linear,
+    train_solver_imitation,
 )
 
 
@@ -30,6 +31,21 @@ def _print_league_progress(info: dict) -> None:
             f"{info['seconds_per_game']:.2f}s/game | "
             f"wins={info['learner_wins']} | draws={info['draws']} | "
             f"snapshots={info['snapshots']}"
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _print_imitation_progress(info: dict) -> None:
+    print(
+        (
+            f"[imitate-solver] {info['game']}/{info['games']} games | "
+            f"elapsed={info['elapsed_seconds']:.1f}s | "
+            f"{info['seconds_per_game']:.2f}s/game | "
+            f"examples={info['examples']} | "
+            f"accuracy={info['teacher_accuracy']:.3f} | "
+            f"loss={info['mean_loss']:.4f}"
         ),
         file=sys.stderr,
         flush=True,
@@ -77,6 +93,22 @@ def _parser() -> argparse.ArgumentParser:
     neural.add_argument("--snapshot-every", type=int, default=0)
     neural.add_argument("--max-candidates", type=int, default=16)
     neural.add_argument("--max-solver-calls", type=int, default=64)
+
+
+    imitate = sub.add_parser(
+        "imitate-solver",
+        help="Supervised warm-start by imitating exact SolverAgent moves",
+    )
+    imitate.add_argument("--games", type=int, default=50)
+    imitate.add_argument("--players", type=int, default=2, choices=(2, 3, 4))
+    imitate.add_argument("--seed", type=int, default=7)
+    imitate.add_argument("--hidden-size", type=int, default=32)
+    imitate.add_argument("--learning-rate", type=float, default=0.01)
+    imitate.add_argument("--resume", type=Path, default=None)
+    imitate.add_argument("--out", type=Path, default=Path("models/action_imitation.json"))
+    imitate.add_argument("--max-candidates", type=int, default=16)
+    imitate.add_argument("--max-solver-calls", type=int, default=64)
+    imitate.add_argument("--progress-every", type=int, default=5)
 
     neural_ev = sub.add_parser(
         "evaluate-action",
@@ -211,6 +243,21 @@ def main() -> None:
             "games": args.games,
             "hidden_size": args.hidden_size,
         }
+    elif args.command == "imitate-solver":
+        agent, stats = train_solver_imitation(
+            args.games,
+            players=args.players,
+            seed=args.seed,
+            hidden_size=args.hidden_size,
+            learning_rate=args.learning_rate,
+            resume_from=args.resume,
+            candidate_max_candidates=args.max_candidates,
+            candidate_max_solver_calls=args.max_solver_calls,
+            progress_every=args.progress_every,
+            progress_callback=_print_imitation_progress,
+        )
+        agent.save(args.out)
+        result = {"saved": str(args.out), **stats}
     elif args.command == "evaluate-action":
         result = duel(
             lambda: CandidatePolicyAgent.load(args.model, training=False),
