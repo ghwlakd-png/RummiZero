@@ -21,9 +21,11 @@ from .training import (
 
 
 def _print_league_progress(info: dict) -> None:
+    generation = info.get("generation")
+    generation_text = f" | gen={generation}" if generation is not None else ""
     print(
         (
-            f"[train-league] {info['game']}/{info['games']} games | "
+            f"[train-league] {info['game']}/{info['games']} games{generation_text} | "
             f"elapsed={info['elapsed_seconds']:.1f}s | "
             f"{info['seconds_per_game']:.2f}s/game | "
             f"wins={info['learner_wins']} | draws={info['draws']} | "
@@ -88,7 +90,7 @@ def _parser() -> argparse.ArgumentParser:
 
     league = sub.add_parser(
         "train-league",
-        help="Train v0.4 against frozen history and automatically gate a champion",
+        help="Train against frozen history and optionally resume a checkpoint",
     )
     league.add_argument("--games", type=int, default=1000)
     league.add_argument("--players", type=int, default=2, choices=(2, 3, 4))
@@ -97,6 +99,7 @@ def _parser() -> argparse.ArgumentParser:
     league.add_argument("--learning-rate", type=float, default=0.01)
     league.add_argument("--out", type=Path, default=Path("models/action_v5.json"))
     league.add_argument("--league-dir", type=Path, default=Path("models/action_league_v5"))
+    league.add_argument("--resume", type=Path, default=None)
     league.add_argument("--snapshot-every", type=int, default=100)
     league.add_argument("--historical-fraction", type=float, default=0.55)
     league.add_argument("--solver-fraction", type=float, default=0.20)
@@ -234,6 +237,7 @@ def main() -> None:
             candidate_max_solver_calls=args.max_solver_calls,
             progress_every=args.progress_every,
             progress_callback=_print_league_progress,
+            resume_from=args.resume,
         )
         agent.save(args.out)
         promotion = None

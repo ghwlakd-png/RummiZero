@@ -56,6 +56,22 @@ def _candidate_trajectory(result, seat: int) -> tuple[CandidateTransition, ...]:
     )
 
 
+def _snapshot_generation(path: Path) -> int | None:
+    try:
+        return int(path.stem.rsplit("_", 1)[-1])
+    except (IndexError, ValueError):
+        return None
+
+
+def _latest_snapshot_generation(league: ActionLeague) -> int:
+    generations = [
+        generation
+        for path in league.snapshots
+        if (generation := _snapshot_generation(path)) is not None
+    ]
+    return max(generations, default=0)
+
+
 def train_candidate_policy(
     games: int,
     *,
@@ -125,8 +141,9 @@ def train_candidate_league(
     candidate_max_solver_calls: int = 64,
     progress_every: int = 0,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    resume_from: Path | None = None,
 ) -> tuple[CandidatePolicyAgent, dict[str, Any]]:
-    """v0.4 league self-play against frozen history, solver and current policy."""
+    """League self-play with optional checkpoint resume."""
 
     if not 0.0 <= historical_fraction <= 1.0:
         raise ValueError("historical_fraction must be within [0, 1]")
@@ -137,22 +154,30 @@ def train_candidate_league(
     if progress_every < 0:
         raise ValueError("progress_every must be >= 0")
 
-    learner = CandidatePolicyAgent(
-        hidden_size=hidden_size,
-        learning_rate=learning_rate,
-        training=True,
-        seed=seed,
-    )
     league = ActionLeague(league_dir)
+    generation_offset = _latest_snapshot_generation(league)
+
+    if resume_from is not None:
+        learner = CandidatePolicyAgent.load(resume_from, training=True)
+        learner.learning_rate = learning_rate
+    else:
+        learner = CandidatePolicyAgent(
+            hidden_size=hidden_size,
+            learning_rate=learning_rate,
+            training=True,
+            seed=seed,
+        )
+
     root_rng = random.Random(seed)
     opponent_counts = {"historical": 0, "solver": 0, "current": 0}
     learner_wins = draws = 0
     started = time.perf_counter()
 
-    if snapshot_every:
-        league.snapshot(learner, 0)
+    if snapshot_every and not league.snapshots:
+        league.snapshot(learner, generation_offset)
 
     for game_i in range(1, games + 1):
+        generation = generation_offset + game_i
         learner_seat = root_rng.randrange(players)
         agents = []
         for seat in range(players):
@@ -189,7 +214,7 @@ def train_candidate_league(
             learner_wins += 1
 
         if snapshot_every and game_i % snapshot_every == 0:
-            league.snapshot(learner, game_i)
+            league.snapshot(learner, generation)
 
         if (
             progress_callback is not None
@@ -201,6 +226,7 @@ def train_candidate_league(
                 {
                     "game": game_i,
                     "games": games,
+                    "generation": generation,
                     "elapsed_seconds": elapsed,
                     "seconds_per_game": elapsed / game_i,
                     "learner_wins": learner_wins,
@@ -211,6 +237,9 @@ def train_candidate_league(
 
     stats = {
         "games": games,
+        "start_generation": generation_offset,
+        "end_generation": generation_offset + games,
+        "resumed_from": str(resume_from) if resume_from is not None else None,
         "learner_wins": learner_wins,
         "draws": draws,
         "opponents": opponent_counts,
