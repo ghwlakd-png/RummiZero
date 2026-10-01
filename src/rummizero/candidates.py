@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Iterable, Protocol
+from typing import Iterable, Iterator, Protocol
 
 from .types import SolverMove
 
@@ -44,9 +44,9 @@ class CandidateGenerationResult:
 class FullTurnCandidateGenerator:
     """Generate multiple complete legal turn candidates.
 
-    v0.2a searches many rack sub-multisets.
-    v0.2b additionally asks an exact-cover enumerator for multiple distinct
-    complete table layouts for each solver-validated rack subset.
+    Candidate rack subsets are streamed lazily, largest first. This is critical
+    in long games where a rack may grow large: materializing every multiset
+    subset is exponential and can exhaust RAM before max_solver_calls is applied.
     """
 
     def __init__(
@@ -73,26 +73,45 @@ class FullTurnCandidateGenerator:
         self.arrangement_node_budget = arrangement_node_budget
 
     @staticmethod
-    def _unique_subsets(rack: Iterable[int]) -> list[tuple[int, ...]]:
-        counts = sorted(Counter(rack).items())
-        out: list[tuple[int, ...]] = []
+    def _iter_unique_subsets(rack: Iterable[int]) -> Iterator[tuple[int, ...]]:
+        """Yield unique non-empty rack sub-multisets without materializing them.
 
-        def visit(index: int, current: list[int]) -> None:
-            if index == len(counts):
-                if current:
-                    out.append(tuple(current))
+        Ordering matches the useful property of the old implementation:
+        larger subsets are considered before smaller subsets. Within a fixed
+        size, lower tile IDs are preferred lexicographically.
+        """
+
+        counts = sorted(Counter(rack).items())
+        if not counts:
+            return
+
+        remaining = [0] * (len(counts) + 1)
+        for i in range(len(counts) - 1, -1, -1):
+            remaining[i] = remaining[i + 1] + counts[i][1]
+
+        current: list[int] = []
+
+        def visit(index: int, need: int) -> Iterator[tuple[int, ...]]:
+            if need == 0:
+                yield tuple(current)
                 return
+            if index >= len(counts) or need > remaining[index]:
+                return
+
             tile, count = counts[index]
-            for n in range(count + 1):
+            max_take = min(count, need)
+            min_take = max(0, need - remaining[index + 1])
+
+            # Prefer more copies of lower tile IDs first for lexical ordering.
+            for n in range(max_take, min_take - 1, -1):
                 if n:
                     current.extend([tile] * n)
-                visit(index + 1, current)
+                yield from visit(index + 1, need - n)
                 if n:
                     del current[-n:]
 
-        visit(0, [])
-        out.sort(key=lambda s: (-len(s), s))
-        return out
+        for target_size in range(remaining[0], 0, -1):
+            yield from visit(0, target_size)
 
     @staticmethod
     def _as_candidate(move: SolverMove) -> CandidateAction:
@@ -123,7 +142,6 @@ class FullTurnCandidateGenerator:
     ) -> CandidateGenerationResult:
         rack_t = tuple(sorted(rack))
         table_t = tuple(tuple(s) for s in table_sets)
-        subsets = self._unique_subsets(rack_t)
 
         seen: set[tuple[tuple[int, ...], tuple[tuple[int, ...], ...], int]] = set()
         candidates: list[CandidateAction] = []
@@ -132,7 +150,7 @@ class FullTurnCandidateGenerator:
         table_is_empty = not any(table_t)
         enumerate_arrangements = getattr(self.backend, "enumerate_arrangements", None)
 
-        for subset in subsets:
+        for subset in self._iter_unique_subsets(rack_t):
             if len(candidates) >= self.max_candidates:
                 truncated = True
                 break
