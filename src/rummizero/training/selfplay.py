@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import random
-from typing import Any
+import time
+from typing import Any, Callable
 
 from rummizero.agents import CandidatePolicyAgent, LinearPolicyAgent, SolverAgent
 from rummizero.simulator import GameSimulator
@@ -122,6 +123,8 @@ def train_candidate_league(
     solver_fraction: float = 0.20,
     candidate_max_candidates: int = 16,
     candidate_max_solver_calls: int = 64,
+    progress_every: int = 0,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[CandidatePolicyAgent, dict[str, Any]]:
     """v0.4 league self-play against frozen history, solver and current policy."""
 
@@ -131,6 +134,8 @@ def train_candidate_league(
         raise ValueError("solver_fraction must be within [0, 1]")
     if historical_fraction + solver_fraction > 1.0:
         raise ValueError("historical_fraction + solver_fraction must be <= 1")
+    if progress_every < 0:
+        raise ValueError("progress_every must be >= 0")
 
     learner = CandidatePolicyAgent(
         hidden_size=hidden_size,
@@ -142,6 +147,7 @@ def train_candidate_league(
     root_rng = random.Random(seed)
     opponent_counts = {"historical": 0, "solver": 0, "current": 0}
     learner_wins = draws = 0
+    started = time.perf_counter()
 
     if snapshot_every:
         league.snapshot(learner, 0)
@@ -184,6 +190,24 @@ def train_candidate_league(
 
         if snapshot_every and game_i % snapshot_every == 0:
             league.snapshot(learner, game_i)
+
+        if (
+            progress_callback is not None
+            and progress_every > 0
+            and (game_i % progress_every == 0 or game_i == games)
+        ):
+            elapsed = time.perf_counter() - started
+            progress_callback(
+                {
+                    "game": game_i,
+                    "games": games,
+                    "elapsed_seconds": elapsed,
+                    "seconds_per_game": elapsed / game_i,
+                    "learner_wins": learner_wins,
+                    "draws": draws,
+                    "snapshots": len(league.snapshots),
+                }
+            )
 
     stats = {
         "games": games,
