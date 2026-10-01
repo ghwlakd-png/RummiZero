@@ -71,3 +71,22 @@ def test_preferred_move_skips_impossible_larger_subsets():
     assert backend.subsets
     assert all(len(subset) <= 3 for subset in backend.subsets)
     assert result.candidates
+
+
+def test_preferred_move_interleaves_subset_sizes_within_budget():
+    backend = RecordingBackend()
+    gen = FullTurnCandidateGenerator(
+        backend,
+        max_candidates=20,
+        max_solver_calls=4,
+    )
+    preferred = SolverMove((1, 2, 3, 4), ((1, 2, 3, 4),), 0)
+
+    gen.generate(
+        (1, 2, 3, 4, 5, 6),
+        ((7, 8, 9),),
+        opening_done=True,
+        preferred_move=preferred,
+    )
+
+    assert [len(subset) for subset in backend.subsets] == [4, 3, 2, 1]
