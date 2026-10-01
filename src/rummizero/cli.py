@@ -7,6 +7,7 @@ from pathlib import Path
 from .agents import CandidatePolicyAgent, LinearPolicyAgent, RandomDelayAgent, SolverAgent
 from .arena import duel
 from .backend import SolverBackend
+from .benchmark import benchmark_selfplay
 from .candidates import FullTurnCandidateGenerator
 from .training import (
     ActionLeague,
@@ -101,6 +102,17 @@ def _parser() -> argparse.ArgumentParser:
     promote.add_argument("--threshold", type=float, default=0.55)
     promote.add_argument("--max-candidates", type=int, default=16)
     promote.add_argument("--max-solver-calls", type=int, default=64)
+
+    bench = sub.add_parser(
+        "benchmark",
+        help="Measure end-to-end candidate-policy game throughput on this machine",
+    )
+    bench.add_argument("--games", type=int, default=3)
+    bench.add_argument("--seed", type=int, default=7)
+    bench.add_argument("--starting-tiles", type=int, default=14)
+    bench.add_argument("--max-turns", type=int, default=300)
+    bench.add_argument("--max-candidates", type=int, default=16)
+    bench.add_argument("--max-solver-calls", type=int, default=64)
     return p
 
 
@@ -212,6 +224,15 @@ def main() -> None:
                 candidate_max_solver_calls=args.max_solver_calls,
             )
         result = {"saved": str(args.out), **stats, "promotion": promotion}
+    elif args.command == "benchmark":
+        result = benchmark_selfplay(
+            args.games,
+            seed=args.seed,
+            starting_tiles=args.starting_tiles,
+            max_turns=args.max_turns,
+            candidate_max_candidates=args.max_candidates,
+            candidate_max_solver_calls=args.max_solver_calls,
+        )
     else:
         result = evaluate_promotion(
             args.challenger,
