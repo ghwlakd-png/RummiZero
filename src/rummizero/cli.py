@@ -8,7 +8,13 @@ from .agents import CandidatePolicyAgent, LinearPolicyAgent, RandomDelayAgent, S
 from .arena import duel
 from .backend import SolverBackend
 from .candidates import FullTurnCandidateGenerator
-from .training import League, train_candidate_policy, train_linear
+from .training import (
+    League,
+    evaluate_promotion,
+    train_candidate_league,
+    train_candidate_policy,
+    train_linear,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -62,6 +68,35 @@ def _parser() -> argparse.ArgumentParser:
     neural_ev.add_argument("--seed", type=int, default=99)
     neural_ev.add_argument("--max-candidates", type=int, default=16)
     neural_ev.add_argument("--max-solver-calls", type=int, default=64)
+
+    league = sub.add_parser(
+        "train-league",
+        help="Train v0.4 against frozen historical snapshots, solver and current policy",
+    )
+    league.add_argument("--games", type=int, default=1000)
+    league.add_argument("--players", type=int, default=2, choices=(2, 3, 4))
+    league.add_argument("--seed", type=int, default=7)
+    league.add_argument("--hidden-size", type=int, default=32)
+    league.add_argument("--learning-rate", type=float, default=0.01)
+    league.add_argument("--out", type=Path, default=Path("models/action_v4.json"))
+    league.add_argument("--league-dir", type=Path, default=Path("models/action_league"))
+    league.add_argument("--snapshot-every", type=int, default=100)
+    league.add_argument("--historical-fraction", type=float, default=0.55)
+    league.add_argument("--solver-fraction", type=float, default=0.20)
+    league.add_argument("--max-candidates", type=int, default=16)
+    league.add_argument("--max-solver-calls", type=int, default=64)
+
+    promote = sub.add_parser(
+        "promotion-gate",
+        help="Head-to-head gate: challenger vs champion",
+    )
+    promote.add_argument("--challenger", type=Path, required=True)
+    promote.add_argument("--champion", type=Path, required=True)
+    promote.add_argument("--games", type=int, default=100)
+    promote.add_argument("--seed", type=int, default=99)
+    promote.add_argument("--threshold", type=float, default=0.55)
+    promote.add_argument("--max-candidates", type=int, default=16)
+    promote.add_argument("--max-solver-calls", type=int, default=64)
     return p
 
 
@@ -136,7 +171,7 @@ def main() -> None:
             "games": args.games,
             "hidden_size": args.hidden_size,
         }
-    else:
+    elif args.command == "evaluate-action":
         result = duel(
             lambda: CandidatePolicyAgent.load(args.model, training=False),
             SolverAgent,
@@ -146,6 +181,32 @@ def main() -> None:
                 "candidate_max_candidates": args.max_candidates,
                 "candidate_max_solver_calls": args.max_solver_calls,
             },
+        )
+    elif args.command == "train-league":
+        agent, stats = train_candidate_league(
+            args.games,
+            players=args.players,
+            seed=args.seed,
+            hidden_size=args.hidden_size,
+            learning_rate=args.learning_rate,
+            league_dir=args.league_dir,
+            snapshot_every=args.snapshot_every,
+            historical_fraction=args.historical_fraction,
+            solver_fraction=args.solver_fraction,
+            candidate_max_candidates=args.max_candidates,
+            candidate_max_solver_calls=args.max_solver_calls,
+        )
+        agent.save(args.out)
+        result = {"saved": str(args.out), **stats}
+    else:
+        result = evaluate_promotion(
+            args.challenger,
+            args.champion,
+            games=args.games,
+            seed=args.seed,
+            threshold=args.threshold,
+            candidate_max_candidates=args.max_candidates,
+            candidate_max_solver_calls=args.max_solver_calls,
         )
     print(json.dumps(result, indent=2))
 

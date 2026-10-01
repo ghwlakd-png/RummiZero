@@ -9,35 +9,28 @@
 - Elo arena
 - league checkpoints
 
-## v0.2 — Full-Turn Candidate Generator — IN PROGRESS
+## v0.2 — Full-Turn Candidate Generator — DONE
+- rack-subset candidate generation
+- multiple complete table arrangements for the same rack subset
+- exact-cover enumeration
+- candidate budgets and deduplication
+- integration tests
 
-### v0.2a — rack-subset candidate generation
-- generate many legal complete-turn alternatives
-- no fixed max-3-rack-tile action restriction
-- exact-subset verification through MILP
-- canonical action keys and deduplication
-- configurable candidate and solver-call budgets
-- unit and real-solver integration tests
-
-### v0.2b — multiple arrangements per rack subset
-- native exact-cover / arrangement enumeration
-- multiple canonical table layouts for the same used rack tiles
-- structural prefilters
-- memoization / transposition cache
-- top-K pruning for self-play speed
-- property tests for tile conservation and legal sets
-
-## v0.3 — Action-conditioned neural policy
+## v0.3 — Action-conditioned neural policy — DONE (MVP)
 - state encoder + candidate action encoder
-- Deep Monte-Carlo baseline inspired by DouZero
-- parallel CPU actors and GPU learner
-- replay buffer and frozen evaluation opponents
+- small neural scorer
+- candidate softmax selection including draw
+- terminal policy-gradient update
+- checkpoint save/load
+- train-action and evaluate-action CLI
 
-## v0.4 — League self-play
-- current policy vs historical snapshots and exploiters
-- Elo/TrueSkill-style ratings
-- automatic promotion gates
-- deterministic benchmark seeds
+## v0.4 — League self-play — IN PROGRESS
+- frozen historical checkpoint pool
+- current policy vs historical snapshots / solver / current policy
+- periodic action-policy snapshots
+- head-to-head promotion gate
+- deterministic evaluation seeds
+- next: persistent champion, automatic promotion and larger benchmark suites
 
 ## v0.5 — imperfect-information strength
 - remaining-tile belief model
