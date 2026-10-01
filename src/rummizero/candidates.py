@@ -77,6 +77,7 @@ class FullTurnCandidateGenerator:
         rack: Iterable[int],
         *,
         max_size: int | None = None,
+        min_size: int = 1,
     ) -> Iterator[tuple[int, ...]]:
         """Yield unique non-empty rack sub-multisets without materializing them.
 
@@ -115,8 +116,31 @@ class FullTurnCandidateGenerator:
                     del current[-n:]
 
         largest = remaining[0] if max_size is None else min(remaining[0], max_size)
-        for target_size in range(largest, 0, -1):
+        for target_size in range(largest, max(1, min_size) - 1, -1):
             yield from visit(0, target_size)
+
+    @classmethod
+    def _iter_diverse_subsets(
+        cls,
+        rack: Iterable[int],
+        *,
+        max_size: int,
+    ) -> Iterator[tuple[int, ...]]:
+        """Interleave subset sizes so a small budget reaches strategic options."""
+
+        iterators = [
+            iter(cls._iter_unique_subsets(rack, max_size=size, min_size=size))
+            for size in range(max_size, 0, -1)
+        ]
+        while iterators:
+            active = []
+            for subsets in iterators:
+                try:
+                    yield next(subsets)
+                    active.append(subsets)
+                except StopIteration:
+                    pass
+            iterators = active
 
     @staticmethod
     def _as_candidate(move: SolverMove) -> CandidateAction:
@@ -163,7 +187,14 @@ class FullTurnCandidateGenerator:
         max_subset_size = (
             len(preferred_move.rack_tiles) if preferred_move is not None else None
         )
-        for subset in self._iter_unique_subsets(rack_t, max_size=max_subset_size):
+        if max_subset_size is None:
+            subsets = self._iter_unique_subsets(rack_t)
+        else:
+            subsets = self._iter_diverse_subsets(
+                rack_t,
+                max_size=max_subset_size,
+            )
+        for subset in subsets:
             if len(candidates) >= self.max_candidates:
                 truncated = True
                 break
