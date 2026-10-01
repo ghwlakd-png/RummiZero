@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 from .agents import CandidatePolicyAgent, LinearPolicyAgent, RandomDelayAgent, SolverAgent
 from .arena import duel
@@ -17,6 +18,20 @@ from .training import (
     train_candidate_policy,
     train_linear,
 )
+
+
+def _print_league_progress(info: dict) -> None:
+    print(
+        (
+            f"[train-league] {info['game']}/{info['games']} games | "
+            f"elapsed={info['elapsed_seconds']:.1f}s | "
+            f"{info['seconds_per_game']:.2f}s/game | "
+            f"wins={info['learner_wins']} | draws={info['draws']} | "
+            f"snapshots={info['snapshots']}"
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -90,6 +105,12 @@ def _parser() -> argparse.ArgumentParser:
     league.add_argument("--promotion-games", type=int, default=100)
     league.add_argument("--promotion-threshold", type=float, default=0.55)
     league.add_argument("--skip-promotion", action="store_true")
+    league.add_argument(
+        "--progress-every",
+        type=int,
+        default=10,
+        help="Print one progress line every N games (0 disables progress output)",
+    )
 
     promote = sub.add_parser(
         "promotion-gate",
@@ -211,6 +232,8 @@ def main() -> None:
             solver_fraction=args.solver_fraction,
             candidate_max_candidates=args.max_candidates,
             candidate_max_solver_calls=args.max_solver_calls,
+            progress_every=args.progress_every,
+            progress_callback=_print_league_progress,
         )
         agent.save(args.out)
         promotion = None
