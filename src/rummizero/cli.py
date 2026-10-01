@@ -9,6 +9,7 @@ from .arena import duel
 from .backend import SolverBackend
 from .candidates import FullTurnCandidateGenerator
 from .training import (
+    ActionLeague,
     League,
     evaluate_promotion,
     train_candidate_league,
@@ -71,7 +72,7 @@ def _parser() -> argparse.ArgumentParser:
 
     league = sub.add_parser(
         "train-league",
-        help="Train v0.4 against frozen historical snapshots, solver and current policy",
+        help="Train v0.4 against frozen history and automatically gate a champion",
     )
     league.add_argument("--games", type=int, default=1000)
     league.add_argument("--players", type=int, default=2, choices=(2, 3, 4))
@@ -85,6 +86,9 @@ def _parser() -> argparse.ArgumentParser:
     league.add_argument("--solver-fraction", type=float, default=0.20)
     league.add_argument("--max-candidates", type=int, default=16)
     league.add_argument("--max-solver-calls", type=int, default=64)
+    league.add_argument("--promotion-games", type=int, default=100)
+    league.add_argument("--promotion-threshold", type=float, default=0.55)
+    league.add_argument("--skip-promotion", action="store_true")
 
     promote = sub.add_parser(
         "promotion-gate",
@@ -197,7 +201,17 @@ def main() -> None:
             candidate_max_solver_calls=args.max_solver_calls,
         )
         agent.save(args.out)
-        result = {"saved": str(args.out), **stats}
+        promotion = None
+        if not args.skip_promotion:
+            promotion = ActionLeague(args.league_dir).consider_challenger(
+                args.out,
+                games=args.promotion_games,
+                seed=args.seed + 1_000_003,
+                threshold=args.promotion_threshold,
+                candidate_max_candidates=args.max_candidates,
+                candidate_max_solver_calls=args.max_solver_calls,
+            )
+        result = {"saved": str(args.out), **stats, "promotion": promotion}
     else:
         result = evaluate_promotion(
             args.challenger,

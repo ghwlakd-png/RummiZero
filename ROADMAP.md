@@ -24,13 +24,15 @@
 - checkpoint save/load
 - train-action and evaluate-action CLI
 
-## v0.4 — League self-play — IN PROGRESS
+## v0.4 — League self-play — NEAR COMPLETE
 - frozen historical checkpoint pool
 - current policy vs historical snapshots / solver / current policy
 - periodic action-policy snapshots
 - head-to-head promotion gate
+- persistent champion checkpoint
+- automatic promotion after training
 - deterministic evaluation seeds
-- next: persistent champion, automatic promotion and larger benchmark suites
+- next: larger benchmark suites and long-run training validation
 
 ## v0.5 — imperfect-information strength
 - remaining-tile belief model
