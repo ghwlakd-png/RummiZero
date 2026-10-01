@@ -17,14 +17,26 @@ def test_auto_experiment_runs_rounds_and_resumes(monkeypatch, tmp_path):
 
     scores = iter((0.40, 0.50, 0.60))
 
-    def fake_consider(self, challenger, **kwargs):
+    def fake_consider(
+        self,
+        challenger,
+        *,
+        games,
+        seed,
+        threshold,
+        candidate_max_candidates,
+        candidate_max_solver_calls,
+        max_turns,
+        progress_every,
+        progress_callback,
+    ):
         score = next(scores)
-        if score >= kwargs["threshold"]:
+        if score >= threshold:
             self.set_champion(CandidatePolicyAgent.load(challenger, training=False))
         return {
             "score": score,
-            "promoted": score >= kwargs["threshold"],
-            "games": kwargs["games"],
+            "promoted": score >= threshold,
+            "games": games,
         }
 
     monkeypatch.setattr(experiment, "train_candidate_league", fake_train)

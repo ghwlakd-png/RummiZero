@@ -40,3 +40,34 @@ def test_rejects_solver_result_that_does_not_consume_whole_subset():
     gen = FullTurnCandidateGenerator(PartialBackend(), max_candidates=100)
     result = gen.generate((1, 2, 3, 4), (), opening_done=True)
     assert all(len(c.rack_tiles) == 3 for c in result.candidates)
+
+
+class RecordingBackend(FakeBackend):
+    def __init__(self):
+        self.subsets = []
+
+    def solve(self, rack, table_sets, opening_done):
+        self.subsets.append(tuple(rack))
+        return super().solve(rack, table_sets, opening_done)
+
+
+def test_preferred_move_skips_impossible_larger_subsets():
+    backend = RecordingBackend()
+    gen = FullTurnCandidateGenerator(
+        backend,
+        max_candidates=4,
+        max_solver_calls=8,
+    )
+    preferred = SolverMove((1, 2, 3), ((1, 2, 3),), 0)
+
+    result = gen.generate(
+        tuple(range(1, 15)),
+        (),
+        opening_done=True,
+        preferred_move=preferred,
+    )
+
+    assert result.solver_calls <= 8
+    assert backend.subsets
+    assert all(len(subset) <= 3 for subset in backend.subsets)
+    assert result.candidates
