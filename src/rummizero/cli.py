@@ -4,11 +4,11 @@ import argparse
 import json
 from pathlib import Path
 
-from .agents import LinearPolicyAgent, RandomDelayAgent, SolverAgent
+from .agents import CandidatePolicyAgent, LinearPolicyAgent, RandomDelayAgent, SolverAgent
 from .arena import duel
 from .backend import SolverBackend
 from .candidates import FullTurnCandidateGenerator
-from .training import League, train_linear
+from .training import League, train_candidate_policy, train_linear
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -32,19 +32,36 @@ def _parser() -> argparse.ArgumentParser:
     ev.add_argument("--games", type=int, default=1000)
     ev.add_argument("--seed", type=int, default=99)
 
-    cand = sub.add_parser(
-        "candidates",
-        help="Generate v0.2a complete-turn candidates for a rack (empty table demo)",
-    )
-    cand.add_argument(
-        "--rack",
-        type=str,
-        required=True,
-        help="Comma-separated standard tile IDs, e.g. 1,2,3,4",
-    )
+    cand = sub.add_parser("candidates", help="Generate complete-turn candidates")
+    cand.add_argument("--rack", type=str, required=True)
     cand.add_argument("--opening-done", action="store_true")
     cand.add_argument("--max-candidates", type=int, default=32)
     cand.add_argument("--max-solver-calls", type=int, default=256)
+
+    neural = sub.add_parser(
+        "train-action",
+        help="Train the v0.3 action-conditioned neural self-play policy",
+    )
+    neural.add_argument("--games", type=int, default=100)
+    neural.add_argument("--players", type=int, default=2, choices=(2, 3, 4))
+    neural.add_argument("--seed", type=int, default=7)
+    neural.add_argument("--hidden-size", type=int, default=32)
+    neural.add_argument("--learning-rate", type=float, default=0.01)
+    neural.add_argument("--out", type=Path, default=Path("models/action_v3.json"))
+    neural.add_argument("--snapshot-dir", type=Path, default=Path("models/action_league"))
+    neural.add_argument("--snapshot-every", type=int, default=0)
+    neural.add_argument("--max-candidates", type=int, default=16)
+    neural.add_argument("--max-solver-calls", type=int, default=64)
+
+    neural_ev = sub.add_parser(
+        "evaluate-action",
+        help="Evaluate a v0.3 action policy vs SolverAgent",
+    )
+    neural_ev.add_argument("--model", type=Path, required=True)
+    neural_ev.add_argument("--games", type=int, default=100)
+    neural_ev.add_argument("--seed", type=int, default=99)
+    neural_ev.add_argument("--max-candidates", type=int, default=16)
+    neural_ev.add_argument("--max-solver-calls", type=int, default=64)
     return p
 
 
@@ -73,14 +90,13 @@ def main() -> None:
             "weights": agent.weights,
         }
     elif args.command == "evaluate":
-        model_path = args.model
         result = duel(
-            lambda: LinearPolicyAgent.load(model_path, training=False),
+            lambda: LinearPolicyAgent.load(args.model, training=False),
             SolverAgent,
             games=args.games,
             seed=args.seed,
         )
-    else:
+    elif args.command == "candidates":
         rack = tuple(int(x.strip()) for x in args.rack.split(",") if x.strip())
         backend = SolverBackend()
         generated = FullTurnCandidateGenerator(
@@ -102,6 +118,35 @@ def main() -> None:
                 for c in generated.candidates
             ],
         }
+    elif args.command == "train-action":
+        agent = train_candidate_policy(
+            args.games,
+            players=args.players,
+            seed=args.seed,
+            hidden_size=args.hidden_size,
+            learning_rate=args.learning_rate,
+            snapshot_every=args.snapshot_every,
+            snapshot_dir=args.snapshot_dir,
+            candidate_max_candidates=args.max_candidates,
+            candidate_max_solver_calls=args.max_solver_calls,
+        )
+        agent.save(args.out)
+        result = {
+            "saved": str(args.out),
+            "games": args.games,
+            "hidden_size": args.hidden_size,
+        }
+    else:
+        result = duel(
+            lambda: CandidatePolicyAgent.load(args.model, training=False),
+            SolverAgent,
+            games=args.games,
+            seed=args.seed,
+            simulator_kwargs={
+                "candidate_max_candidates": args.max_candidates,
+                "candidate_max_solver_calls": args.max_solver_calls,
+            },
+        )
     print(json.dumps(result, indent=2))
 
 

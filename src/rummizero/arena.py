@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from typing import Callable
+from typing import Any, Callable
 
 from .agents.base import Agent
 from .simulator import GameSimulator
@@ -14,14 +14,21 @@ def duel(
     *,
     games: int,
     seed: int,
+    simulator_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, float | int]:
     rng = random.Random(seed)
     wins_a = wins_b = draws = 0
     elo_a = elo_b = 1000.0
+    sim_kwargs = simulator_kwargs or {}
+
     for i in range(games):
         swapped = bool(i % 2)
         agents = [make_b(), make_a()] if swapped else [make_a(), make_b()]
-        result = GameSimulator(agents, seed=rng.randrange(2**31)).run()
+        result = GameSimulator(
+            agents,
+            seed=rng.randrange(2**31),
+            **sim_kwargs,
+        ).run()
         if result.winner is None:
             score_a = 0.5
             draws += 1
